@@ -6,14 +6,14 @@ String APN          = "internet";
 String SERVER_HOST  = "audira.id";        
 String DEVICE_TOKEN = "AUDIRA-HW-001";    
 
-#define RXD2    16    // SIMCOM A7670C TX → ESP32 RX2
-#define TXD2    17    // SIMCOM A7670C RX → ESP32 TX2
-#define SS_PIN  5     // MFRC522 SDA/SS
-#define RST_PIN 22    // MFRC522 RST (Sesuai wiring kita sebelumnya)
-#define LED_PIN 2     // Built-in LED
+#define RXD2    16    
+#define TXD2    17    
+#define SS_PIN  5     
+#define RST_PIN 22    
+#define LED_PIN 2    
 
-#define HEARTBEAT_INTERVAL_MS 10000  // 10 detik
-#define RFID_DEBOUNCE_MS      1000   // 1 detik antar tap kartu (turun dari 2s)
+#define HEARTBEAT_INTERVAL_MS 10000  
+#define RFID_DEBOUNCE_MS      1000   
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 unsigned long lastHeartbeat = 0;
