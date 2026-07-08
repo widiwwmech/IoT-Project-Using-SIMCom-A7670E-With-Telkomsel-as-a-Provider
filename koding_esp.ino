@@ -1,33 +1,17 @@
-/**
- * ================================================================
- * AUDIRA IoT Firmware v2.0 - STABLE HTTPS EDITION
- * ESP32 DevKit V4 + MFRC522 RFID + SIMCOM A7670C (4G LTE)
- * ================================================================
- */
-
 #include <ArduinoJson.h>
 #include <MFRC522.h>
 #include <SPI.h>
 
-// ============================================================
-//  KONFIGURASI — SESUAIKAN DENGAN KEBUTUHAN
-// ============================================================
-String APN          = "internet";         // Telkomsel / By.U
-String SERVER_HOST  = "audira.id";        // Domain server
-String DEVICE_TOKEN = "AUDIRA-HW-001";    // Identitas unik alat
+String APN          = "internet";         
+String SERVER_HOST  = "audira.id";        
+String DEVICE_TOKEN = "AUDIRA-HW-001";    
 
-// ============================================================
-//  PIN DEFINITIONS (ESP32 DevKit V4)
-// ============================================================
 #define RXD2    16    // SIMCOM A7670C TX → ESP32 RX2
 #define TXD2    17    // SIMCOM A7670C RX → ESP32 TX2
 #define SS_PIN  5     // MFRC522 SDA/SS
 #define RST_PIN 22    // MFRC522 RST (Sesuai wiring kita sebelumnya)
 #define LED_PIN 2     // Built-in LED
 
-// ============================================================
-//  TIMING & STATE
-// ============================================================
 #define HEARTBEAT_INTERVAL_MS 10000  // 10 detik
 #define RFID_DEBOUNCE_MS      1000   // 1 detik antar tap kartu (turun dari 2s)
 
@@ -38,9 +22,6 @@ unsigned long lastScanTime = 0;
 bool isLTEConnected = false;
 bool isConnectedToRoom = false;
 
-// ============================================================
-//  AT COMMAND UTILITIES (ANTI-GAGAL ENGINE)
-// ============================================================
 String sendDataWaitResponse(String command, String waitString, const int timeout) {
   String response = "";
   bool found = false;
@@ -51,24 +32,19 @@ String sendDataWaitResponse(String command, String waitString, const int timeout
   unsigned long startTime = millis();
   unsigned long lastCharTime = millis();
 
-  // Baca karakter per karakter dengan idle-timeout 50ms
-  // Jauh lebih cepat dari readString() yang defaultnya 1 DETIK per panggilan
   while ((millis() - startTime) < (unsigned long)timeout) {
     if (Serial2.available()) {
       char c = Serial2.read();
       response += c;
       lastCharTime = millis();
 
-      // Cek apakah respons sudah mengandung string yang ditunggu
       if (response.indexOf(waitString) >= 0) {
-        // Tunggu sedikit untuk sisa data masuk, lalu keluar
         delay(20);
         while (Serial2.available()) response += (char)Serial2.read();
         found = true;
         break;
       }
     } else {
-      // Jika sudah ada data tapi idle >50ms, anggap respons selesai
       if (response.length() > 0 && (millis() - lastCharTime) > 50) {
         break;
       }
@@ -83,31 +59,24 @@ String sendDataWaitResponse(String command, String waitString, const int timeout
   return response;
 }
 
-// ============================================================
-//  NETWORK INITIALIZATION
-// ============================================================
 void initLTE() {
   Serial.println("\n[LTE] Menginisialisasi modul 4G...");
 
   sendDataWaitResponse("AT", "OK", 2000);
-  sendDataWaitResponse("AT+HTTPTERM", "OK", 2000); // Bersihkan sesi lama
+  sendDataWaitResponse("AT+HTTPTERM", "OK", 2000); 
 
   sendDataWaitResponse("AT+CGATT=1", "OK", 5000);
   sendDataWaitResponse("AT+CGDCONT=1,\"IP\",\"" + APN + "\"", "OK", 5000);
   sendDataWaitResponse("AT+CGACT=1,1", "OK", 10000);
-  sendDataWaitResponse("AT+CGPADDR", "+CGPADDR:", 5000); // Pastikan dapat IP
+  sendDataWaitResponse("AT+CGPADDR", "+CGPADDR:", 5000); 
 
   isLTEConnected = true;
   Serial.println("[LTE] Jaringan siap. Mesin HTTPS standby.");
 }
 
-// ============================================================
-//  HTTP POST (JSON over HTTPS)
-// ============================================================
 int sendHTTPPost(String endpoint, String jsonPayload) {
   if (!isLTEConnected) return -1;
 
-  // Modul otomatis pakai SSL karena awalan url adalah "https://"
   String url = "https://" + SERVER_HOST + endpoint;
 
   sendDataWaitResponse("AT+HTTPTERM", "OK", 1000);
@@ -116,18 +85,14 @@ int sendHTTPPost(String endpoint, String jsonPayload) {
   sendDataWaitResponse("AT+HTTPPARA=\"URL\",\"" + url + "\"", "OK", 3000);
   sendDataWaitResponse("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
 
-  // 1. Kirim deklarasi panjang data, tunggu sampai muncul kata "DOWNLOAD"
   String dataCommand = "AT+HTTPDATA=" + String(jsonPayload.length()) + ",10000";
   sendDataWaitResponse(dataCommand, "DOWNLOAD", 3000);
 
-  // 2. Tembakkan Payload JSON nya
   Serial.println(">> Mengirim JSON: " + jsonPayload);
   sendDataWaitResponse(jsonPayload, "OK", 3000);
 
-  // 3. Eksekusi POST (Action = 1) — SSL handshake terjadi di sini, butuh waktu
   String actionResp = sendDataWaitResponse("AT+HTTPACTION=1", "+HTTPACTION:", 15000);
 
-  // 4. Parse HTTP Status Code
   int httpCode = 0;
   int idx = actionResp.indexOf("+HTTPACTION: 1,");
   if (idx >= 0) {
@@ -137,7 +102,6 @@ int sendHTTPPost(String endpoint, String jsonPayload) {
 
   Serial.println("[HTTP] Status Code: " + String(httpCode));
 
-  // 5. Baca respon dari server jika berhasil (Opsional)
   if (httpCode > 0) {
     sendDataWaitResponse("AT+HTTPREAD=0,500", "+HTTPREAD:", 3000);
   }
@@ -146,9 +110,6 @@ int sendHTTPPost(String endpoint, String jsonPayload) {
   return httpCode;
 }
 
-// ============================================================
-//  API FUNCTIONS
-// ============================================================
 void sendHeartbeat() {
   Serial.println("\n[API] Mengirim Heartbeat...");
   JsonDocument doc;
@@ -182,7 +143,6 @@ void sendRFIDScan(String uid) {
   String payload;
   serializeJson(doc, payload);
 
-  // Gunakan versi cepat: skip baca respon body (hanya perlu status code)
   if (!isLTEConnected) return;
   String url = "https://" + SERVER_HOST + "/api/iot/rfid-scan";
 
@@ -204,22 +164,18 @@ void sendRFIDScan(String uid) {
     httpCode = actionResp.substring(idx + 15, idx + 18).toInt();
   }
 
-  // SKIP AT+HTTPREAD — tidak perlu baca body untuk scan
   sendDataWaitResponse("AT+HTTPTERM", "OK", 500);
 
   Serial.println("[SCAN] Status: " + String(httpCode));
   if (httpCode == 200) {
     Serial.println("[SCAN] [+] Kartu berhasil dikirim!");
-    blinkLED(2, 150);  // Blink lebih cepat
+    blinkLED(2, 150); 
   } else {
     Serial.println("[SCAN] [-] Ditolak. Kode: " + String(httpCode));
     blinkLED(5, 100);
   }
 }
 
-// ============================================================
-//  RFID UTILITIES
-// ============================================================
 String getUID() {
   String uid = "";
   for (byte i = 0; i < rfid.uid.size; i++) {
@@ -241,13 +197,10 @@ void blinkLED(int times, int delayMs) {
   if (isConnectedToRoom) digitalWrite(LED_PIN, HIGH);
 }
 
-// ============================================================
-//  SETUP & LOOP
-// ============================================================
 void setup() {
   Serial.begin(115200);
   Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
-  Serial2.setTimeout(100); // Penting: kurangi default 1000ms → 100ms
+  Serial2.setTimeout(100); 
   delay(500);
 
   Serial.println("\n====================================");
@@ -263,7 +216,6 @@ void setup() {
 
   initLTE();
 
-  // Heartbeat Perdana
   sendHeartbeat();
   lastHeartbeat = millis();
 }
@@ -280,8 +232,7 @@ void loop() {
     if (uid != lastScannedUID || millis() - lastScanTime > RFID_DEBOUNCE_MS) {
       lastScannedUID = uid;
       lastScanTime = millis();
-      
-      // Jika berhasil baca kartu, langsung kirim ke server
+
       sendRFIDScan(uid);
     }
     rfid.PICC_HaltA();
